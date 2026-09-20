@@ -50,17 +50,18 @@ namespace Jellyfin.Plugin.MergeVersions
         {
             cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("Scanning for repeated movies");
+            
+            var providerIdKeys = GetConfiguredProviderIdKeys();
+            _logger.LogInformation("Process Provider Ids: {Keys}", string.Join(", ", providerIdKeys));
 
-            _logger.LogInformation("GetConfiguredProviderIdKeys {GetConfiguredProviderIdKeys})", GetConfiguredProviderIdKeys());
-
-            var duplicateMovies = GetMoviesFromLibrary(GetConfiguredProviderIdKeys())
+            var duplicateMovies = GetMoviesFromLibrary(providerIdKeys)
                 .GroupBy(x => x.ProviderId, StringComparer.OrdinalIgnoreCase)
                 .Where(group => group.Count() > 1 &&
                                 group.Any(x => x.Movie.PrimaryVersionId == null &&
                                     !x.Movie.LinkedAlternateVersions.Any()))
                 .Select(group => group.Select(x => x.Movie))
                 .ToList();
-            _logger.LogInformation("duplicateMovies {Count} )", duplicateMovies.Count);
+            _logger.LogInformation("total duplicate Movies to process: {Count}", duplicateMovies.Count);
 
             var current = 0;
             foreach (var movies in duplicateMovies)
