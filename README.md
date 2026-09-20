@@ -1,3 +1,5 @@
+Support multiple providers
+
 <h1 align="center">Jellyfin Merge Versions Plugin</h1>
 <h3 align="center">Part of the <a href="https://jellyfin.org">Jellyfin Project</a></h3>
 

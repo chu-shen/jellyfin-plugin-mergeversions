@@ -36,16 +36,27 @@ namespace Jellyfin.Plugin.MergeVersions
             _timer = new Timer(_ => OnTimerElapsed(), null, Timeout.Infinite, Timeout.Infinite);
         }
 
+        private static string[] GetConfiguredProviderIdKeys()
+        {
+            var keys = (Plugin.Instance?.Configuration?.ProviderIdKeys ?? Array.Empty<string>())
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .Select(k => k.Trim())
+                .ToArray();
+
+            return keys.Length > 0 ? keys : new[] { "Tmdb" };
+        }
+
         public async Task MergeMoviesAsync(IProgress<double> progress, ClaimsPrincipal user = null, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("Scanning for repeated movies");
 
-            var duplicateMovies = GetMoviesFromLibrary()
-                .GroupBy(x => x.ProviderIds["Tmdb"])
+            var duplicateMovies = GetMoviesFromLibrary(GetConfiguredProviderIdKeys())
+                .GroupBy(x => x.ProviderId, StringComparer.OrdinalIgnoreCase)
                 .Where(group => group.Count() > 1 &&
-                group.Any(movie => movie.PrimaryVersionId == null &&
-                                    !movie.LinkedAlternateVersions.Any()))
+                                group.Any(x => x.Movie.PrimaryVersionId == null &&
+                                    !x.Movie.LinkedAlternateVersions.Any()))
+                .Select(group => group.Select(x => x.Movie))
                 .ToList();
 
             var current = 0;
@@ -65,7 +76,9 @@ namespace Jellyfin.Plugin.MergeVersions
         public async Task SplitMoviesAsync(IProgress<double> progress, ClaimsPrincipal user = null, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var movies = GetMoviesFromLibrary();
+            var movies = GetMoviesFromLibrary(GetConfiguredProviderIdKeys())
+                .Select(x => x.Movie)
+                .ToList();
             var current = 0;
             foreach (var movie in movies)
             {
@@ -127,7 +140,7 @@ namespace Jellyfin.Plugin.MergeVersions
             progress?.Report(100);
         }
 
-        private List<Movie> GetMoviesFromLibrary()
+        private List<(Movie Movie, string ProviderId)> GetMoviesFromLibrary(IReadOnlyList<string> providerIdKeys)
         {
             return _libraryManager
                     .GetItemList(
@@ -138,8 +151,9 @@ namespace Jellyfin.Plugin.MergeVersions
                             Recursive = true,
                         }
                 )
-                .Select(m => m as Movie)
-                .Where(m => m.ProviderIds.ContainsKey("Tmdb"))
+                .OfType<Movie>()
+                .Select(m => (Movie: m, ProviderId: GetFirstProviderId(m, providerIdKeys)))
+                .Where(x => !string.IsNullOrWhiteSpace(x.ProviderId))
                 .Where(IsEligible)
                 .ToList();
         }
@@ -170,7 +184,7 @@ namespace Jellyfin.Plugin.MergeVersions
                     return $"provider:{provider}:{providerId}";
                 }
             }
-            
+
             if (episode.ParentIndexNumber.HasValue && episode.IndexNumber.HasValue)
             {
                 return $"number:{episode.SeriesName}:{episode.ParentIndexNumber}:{episode.IndexNumber}:{episode.IndexNumberEnd}";
@@ -190,9 +204,9 @@ namespace Jellyfin.Plugin.MergeVersions
 
         private bool IsInExcludedLibrary(BaseItem item)
         {
-           return Plugin.Instance.PluginConfiguration.LocationsExcluded != null
-                  && Plugin.Instance.PluginConfiguration.LocationsExcluded
-                    .Any(s => _fileSystem.ContainsSubPath(s, item.Path));
+            return Plugin.Instance.PluginConfiguration.LocationsExcluded != null
+                   && Plugin.Instance.PluginConfiguration.LocationsExcluded
+                     .Any(s => _fileSystem.ContainsSubPath(s, item.Path));
         }
 
         private bool IsInInactiveLibrary(BaseItem item)
@@ -229,6 +243,30 @@ namespace Jellyfin.Plugin.MergeVersions
             {
                 _timer?.Dispose();
             }
+        }
+
+        private static string GetFirstProviderId(BaseItem item, IReadOnlyList<string> keys)
+        {
+            if (item?.ProviderIds is null || keys is null || keys.Count == 0)
+            {
+                return null;
+            }
+
+            foreach (var key in keys)
+            {
+                if (string.IsNullOrWhiteSpace(key)) continue;
+
+                foreach (var p in item.ProviderIds)
+                {
+                    if (string.Equals(p.Key, key, StringComparison.OrdinalIgnoreCase) &&
+                        !string.IsNullOrWhiteSpace(p.Value))
+                    {
+                        return p.Value;
+                    }
+                }
+            }
+
+            return null;
         }
     }
 }

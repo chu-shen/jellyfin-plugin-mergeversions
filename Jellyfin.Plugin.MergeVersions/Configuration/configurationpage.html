@@ -17,9 +17,18 @@
                             href="https://github.com/danieladov/jellyfin-plugin-mergeversions">Help</a>
                     </div>
                     <div class="verticalSection">
-                        <p>This plugin relies on the TMDb provider
-                            Please make sure it is enabled!</p>
-                        <br />
+                        <form id="MergeVersionsConfigForm">
+                            <div class="inputContainer">
+                                <label class="inputLabel" for="providerIdKeys">Provider ID</label>
+                                <input id="providerIdKeys" name="providerIdKeys" type="text" is="emby-input" />
+                                <div class="fieldDescription">
+                                    example: Tmdb,Imdb
+                                </div>
+                            </div>
+                            <button is="emby-button" type="submit" class="raised button-submit block">
+                                <span>Save</span>
+                            </button>
+                        </form>
                     </div>
                     <br />
                     <div>
@@ -124,6 +133,9 @@
                     loadVirtualFolders(config, virtualFolders);
                 });
 
+                var providerIdKeys = config.ProviderIdKeys || ['Tmdb'];
+                document.querySelector('#providerIdKeys').value = providerIdKeys.join(',');
+
 
             });
 
@@ -168,9 +180,17 @@
                 }).get();
 
 
+                var providerIdKeys = document.querySelector('#providerIdKeys').value
+                    .split(',')
+                    .map(function (s) { return s.trim(); })
+                    .filter(function (s) { return s; });
+                if (providerIdKeys.length === 0) {
+                    providerIdKeys = ['Tmdb'];
+                }
 
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     config.LocationsExcluded = folders;
+                    config.ProviderIdKeys = providerIdKeys;
                     ApiClient.updatePluginConfiguration(pluginId, config).then(function (res) {
                         Dashboard.processPluginConfigurationUpdateResult(res);
                     });
@@ -193,7 +213,11 @@
 
 
 
-
+            document.querySelector('#MergeVersionsConfigForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                save()
+                return false;
+            });
 
 
 
