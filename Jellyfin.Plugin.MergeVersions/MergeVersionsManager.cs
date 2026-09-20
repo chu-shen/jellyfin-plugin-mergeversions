@@ -154,7 +154,7 @@ namespace Jellyfin.Plugin.MergeVersions
                 .OfType<Movie>()
                 .Select(m => (Movie: m, ProviderId: GetFirstProviderId(m, providerIdKeys)))
                 .Where(x => !string.IsNullOrWhiteSpace(x.ProviderId))
-                .Where(IsEligible)
+                .Where(x => IsEligible(x.Movie))
                 .ToList();
         }
 
