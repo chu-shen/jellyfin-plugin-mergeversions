@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/chu-shen/jellyfin-plugin-mergeversions/compare/v1.0.0...v1.1.0) (2026-09-21)
+
+
+### Features
+
+* support episode ([9891364](https://github.com/chu-shen/jellyfin-plugin-mergeversions/commit/9891364f3c84f42d5193dbbed6818ad1d7b7f38c))
+
+
+### Bug Fixes
+
+* fix:  ([83b9dd6](https://github.com/chu-shen/jellyfin-plugin-mergeversions/commit/83b9dd60f890a3ad64a5f9a26dc57b118dbdcafb))
+
 ## 1.0.0 (2026-09-20)
 
 
