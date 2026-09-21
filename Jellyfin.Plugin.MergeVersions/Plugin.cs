@@ -35,6 +35,7 @@ namespace Jellyfin.Plugin.MergeVersions
                 new PluginPageInfo
                 {
                     Name = "Merge Versions",
+                    EnableInMainMenu = true,
                     EmbeddedResourcePath = GetType().Namespace + ".Configuration.configurationpage.html"
                 }
             };

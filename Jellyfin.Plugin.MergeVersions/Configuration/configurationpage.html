@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <body>
     <div data-role="page" class="page type-interior pluginConfigurationPage tbsConfigurationPage"
         data-require="emby-input,emby-button">
@@ -14,11 +15,27 @@
                     <div class="verticalSection">
                         <form id="MergeVersionsConfigForm">
                             <div class="inputContainer">
-                                <label class="inputLabel" for="providerIdKeys">Provider ID</label>
-                                <input id="providerIdKeys" name="providerIdKeys" type="text" is="emby-input" />
+                                <label class="inputLabel" for="movieproviderIdKeys">Movie Provider ID</label>
+                                <input id="movieproviderIdKeys" name="movieproviderIdKeys" type="text"
+                                    is="emby-input" />
                                 <div class="fieldDescription">
                                     example: Tmdb,Imdb
                                 </div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel" for="episodeproviderIdKeys">Episode Provider ID</label>
+                                <input id="episodeproviderIdKeys" name="episodeproviderIdKeys" type="text"
+                                    is="emby-input" />
+                                <div class="fieldDescription">
+                                    example: Tvdb,Tmdb,Imdb
+                                </div>
+                            </div>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="enableEpisodeFallback" name="enableEpisodeFallback" type="checkbox"
+                                        is="emby-checkbox" />
+                                    <span>Enable Episode Fallback</span>
+                                </label>
                             </div>
                         </form>
                     </div>
@@ -118,8 +135,14 @@
                     loadVirtualFolders(config, virtualFolders);
                 });
 
-                var providerIdKeys = config.ProviderIdKeys || ['Tmdb'];
-                document.querySelector('#providerIdKeys').value = providerIdKeys.join(',');
+                var movieProviderIdKeys = config.MovieProviderIdKeys || ['Tmdb'];
+                document.querySelector('#movieproviderIdKeys').value = movieProviderIdKeys.join(',');
+
+                var episodeProviderIdKeys = config.EpisodeProviderIdKeys || ['Tvdb', 'Tmdb', 'Imdb'];
+                document.querySelector('#episodeproviderIdKeys').value = episodeProviderIdKeys.join(',');
+
+                var enableEpisodeFallback = config.EnableEpisodeFallback || false;
+                document.querySelector('#enableEpisodeFallback').checked = enableEpisodeFallback;
             });
 
             function loadVirtualFolders(config, virtualFolders) {
@@ -156,17 +179,29 @@
                 }).get();
 
 
-                var providerIdKeys = document.querySelector('#providerIdKeys').value
+                var movieProviderIdKeys = document.querySelector('#movieproviderIdKeys').value
                     .split(',')
                     .map(function (s) { return s.trim(); })
                     .filter(function (s) { return s; });
-                if (providerIdKeys.length === 0) {
-                    providerIdKeys = ['Tmdb'];
+                if (movieProviderIdKeys.length === 0) {
+                    movieProviderIdKeys = ['Tmdb'];
                 }
+
+                var episodeProviderIdKeys = document.querySelector('#episodeproviderIdKeys').value
+                    .split(',')
+                    .map(function (s) { return s.trim(); })
+                    .filter(function (s) { return s; });
+                if (episodeProviderIdKeys.length === 0) {
+                    episodeProviderIdKeys = ['Tvdb', 'Tmdb', 'Imdb'];
+                }
+
+                var enableEpisodeFallback = document.querySelector('#enableEpisodeFallback').checked;
 
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     config.LocationsExcluded = folders;
-                    config.ProviderIdKeys = providerIdKeys;
+                    config.MovieProviderIdKeys = movieProviderIdKeys;
+                    config.EpisodeProviderIdKeys = episodeProviderIdKeys;
+                    config.EnableEpisodeFallback = enableEpisodeFallback;
                     ApiClient.updatePluginConfiguration(pluginId, config).then(function (res) {
                         Dashboard.processPluginConfigurationUpdateResult(res);
                     });

@@ -1,5 +1,5 @@
-﻿using MediaBrowser.Model.Plugins;
-using System;
+﻿using System;
+using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.MergeVersions.Configuration
 {
@@ -8,16 +8,26 @@ namespace Jellyfin.Plugin.MergeVersions.Configuration
 
         public string[] LocationsExcluded { get; set; }
 
-        
         /// <summary>
         /// Tmdb, Imdb
         /// </summary>
-        public string[] ProviderIdKeys { get; set; }
+        public string[] MovieProviderIdKeys { get; set; }
+        /// <summary>
+        /// "Tvdb", "Tmdb", "Imdb"
+        /// </summary>
+        public string[] EpisodeProviderIdKeys { get; set; }
+
+        /// <summary>
+        /// use season number title
+        /// </summary>
+        public bool EnableEpisodeFallback { get; set; }
 
         public PluginConfiguration()
         {
             LocationsExcluded = Array.Empty<String>();
-            ProviderIdKeys = new[] { "Tmdb" };
+            MovieProviderIdKeys = new[] { "Tmdb" };
+            EpisodeProviderIdKeys = new[] { "Tvdb", "Tmdb", "Imdb" };
+            EnableEpisodeFallback = false;
         }
     }
 }

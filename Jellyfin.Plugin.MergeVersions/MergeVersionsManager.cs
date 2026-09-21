@@ -36,9 +36,9 @@ namespace Jellyfin.Plugin.MergeVersions
             _timer = new Timer(_ => OnTimerElapsed(), null, Timeout.Infinite, Timeout.Infinite);
         }
 
-        private static string[] GetConfiguredProviderIdKeys()
+        private static string[] GetConfiguredMovieProviderIdKeys()
         {
-            var keys = (Plugin.Instance?.Configuration?.ProviderIdKeys ?? Array.Empty<string>())
+            var keys = (Plugin.Instance?.Configuration?.MovieProviderIdKeys ?? Array.Empty<string>())
                 .Where(k => !string.IsNullOrWhiteSpace(k))
                 .Select(k => k.Trim())
                 .ToArray();
@@ -50,15 +50,17 @@ namespace Jellyfin.Plugin.MergeVersions
         {
             cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("Scanning for repeated movies");
-            
-            var providerIdKeys = GetConfiguredProviderIdKeys();
+
+            var providerIdKeys = GetConfiguredMovieProviderIdKeys();
             _logger.LogInformation("Process Provider Ids: {Keys}", string.Join(", ", providerIdKeys));
 
-            var duplicateMovies = GetMoviesFromLibrary(providerIdKeys)
-                .GroupBy(x => x.ProviderId, StringComparer.OrdinalIgnoreCase)
+            var ctx = BuildLibraryContext();
+
+            var duplicateMovies = GetMoviesFromLibrary(providerIdKeys, ctx)
+                .Where(x => !string.IsNullOrWhiteSpace(x.MergeKey))
+                .GroupBy(x => x.MergeKey, StringComparer.OrdinalIgnoreCase)
                 .Where(group => group.Count() > 1 &&
-                                group.Any(x => x.Movie.PrimaryVersionId == null &&
-                                    !x.Movie.LinkedAlternateVersions.Any()))
+                                group.Any(x => IsNotYetMerged(x.Movie)))
                 .Select(group => group.Select(x => x.Movie))
                 .ToList();
             _logger.LogInformation("total duplicate Movies to process: {Count}", duplicateMovies.Count);
@@ -80,7 +82,8 @@ namespace Jellyfin.Plugin.MergeVersions
         public async Task SplitMoviesAsync(IProgress<double> progress, ClaimsPrincipal user = null, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var movies = GetMoviesFromLibrary(GetConfiguredProviderIdKeys())
+            var ctx = BuildLibraryContext();
+            var movies = GetMoviesFromLibrary(GetConfiguredMovieProviderIdKeys(), ctx)
                 .Select(x => x.Movie)
                 .ToList();
             var current = 0;
@@ -96,15 +99,58 @@ namespace Jellyfin.Plugin.MergeVersions
             progress?.Report(100);
         }
 
+        private List<(Movie Movie, string MergeKey)> GetMoviesFromLibrary(IReadOnlyList<string> providerIdKeys, LibraryContext ctx)
+        {
+            return _libraryManager
+                    .GetItemList(
+                        new InternalItemsQuery
+                        {
+                            IncludeItemTypes = [BaseItemKind.Movie],
+                            IsVirtualItem = false,
+                            Recursive = true,
+                        }
+                )
+                .OfType<Movie>()
+                .Select(m => (Movie: m, MergeKey: GetMovieMergeKey(m, providerIdKeys)))
+                .Where(x => IsEligible(x.Movie, ctx))
+                .ToList();
+        }
+        private static string GetMovieMergeKey(Movie movie, IReadOnlyList<string> providerKeys)
+        {
+            var provider = GetFirstProviderId(movie, providerKeys);
+            return provider.HasValue ? BuildProviderMergeKey(provider.Value) : null;
+        }
+
+
+        private static string[] GetConfiguredEpisodeProviderIdKeys()
+        {
+            var keys = (Plugin.Instance?.Configuration?.EpisodeProviderIdKeys ?? Array.Empty<string>())
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .Select(k => k.Trim())
+                .ToArray();
+
+            return keys.Length > 0 ? keys : new[] { "Tvdb", "Tmdb", "Imdb" };
+        }
+
         public async Task MergeEpisodesAsync(IProgress<double> progress, ClaimsPrincipal user = null, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("Scanning for repeated episodes");
 
-            var episodes = GetEpisodesFromLibrary();
+            var providerIdKeys = GetConfiguredEpisodeProviderIdKeys();
+            _logger.LogInformation("Episode Provider Ids: {Keys}", string.Join(", ", providerIdKeys));
+
+            var ctx = BuildLibraryContext();
+
+            var enableEpisodeFallback = Plugin.Instance?.Configuration?.EnableEpisodeFallback ?? false;
+
+            var episodes = GetEpisodesFromLibrary(providerIdKeys, ctx, enableEpisodeFallback);
             var duplicateEpisodes = episodes
-                .GroupBy(GetEpisodeMergeKey, StringComparer.OrdinalIgnoreCase)
-                .Where(x => x.Count() > 1)
+                .Where(x => !string.IsNullOrWhiteSpace(x.MergeKey))
+                .GroupBy(x => x.MergeKey, StringComparer.OrdinalIgnoreCase)
+                .Where(x => x.Count() > 1 &&
+                            x.Any(e => IsNotYetMerged(e.Episode)))
+                .Select(g => g.Select(x => x.Episode))
                 .ToList();
 
             _logger.LogInformation(
@@ -129,7 +175,12 @@ namespace Jellyfin.Plugin.MergeVersions
         public async Task SplitEpisodesAsync(IProgress<double> progress, ClaimsPrincipal user = null, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var episodes = GetEpisodesFromLibrary();
+            var ctx = BuildLibraryContext();
+            var providerIdKeys = GetConfiguredEpisodeProviderIdKeys();
+            var enableEpisodeFallback = Plugin.Instance?.Configuration?.EnableEpisodeFallback ?? false;
+            var episodes = GetEpisodesFromLibrary(providerIdKeys, ctx, enableEpisodeFallback)
+                .Select(x => x.Episode)
+                .ToList();
             var current = 0;
 
             foreach (var episode in episodes)
@@ -144,25 +195,8 @@ namespace Jellyfin.Plugin.MergeVersions
             progress?.Report(100);
         }
 
-        private List<(Movie Movie, string ProviderId)> GetMoviesFromLibrary(IReadOnlyList<string> providerIdKeys)
-        {
-            return _libraryManager
-                    .GetItemList(
-                        new InternalItemsQuery
-                        {
-                            IncludeItemTypes = [BaseItemKind.Movie],
-                            IsVirtualItem = false,
-                            Recursive = true,
-                        }
-                )
-                .OfType<Movie>()
-                .Select(m => (Movie: m, ProviderId: GetFirstProviderId(m, providerIdKeys)))
-                .Where(x => !string.IsNullOrWhiteSpace(x.ProviderId))
-                .Where(x => IsEligible(x.Movie))
-                .ToList();
-        }
-
-        private List<Episode> GetEpisodesFromLibrary()
+        private List<(Episode Episode, string MergeKey)> GetEpisodesFromLibrary(
+    IReadOnlyList<string> providerIdKeys, LibraryContext ctx, bool enableEpisodeFallback)
         {
             return _libraryManager
                 .GetItemList(
@@ -173,47 +207,78 @@ namespace Jellyfin.Plugin.MergeVersions
                         Recursive = true,
                     }
                 )
-                .Select(m => m as Episode)
-                .Where(IsEligible)
+                .OfType<Episode>()
+                .Select(e => (Episode: e, MergeKey: GetEpisodeMergeKey(e, providerIdKeys, enableEpisodeFallback)))
+                .Where(x => IsEligible(x.Episode, ctx))
                 .ToList();
         }
 
-        private static string GetEpisodeMergeKey(Episode episode)
+        private static string GetEpisodeMergeKey(Episode episode, IReadOnlyList<string> providerKeys, bool enableEpisodeFallback)
         {
-            foreach (var provider in new[] { "Tvdb", "Tmdb", "Imdb" })
+            var provider = GetFirstProviderId(episode, providerKeys);
+            if (provider.HasValue)
             {
-                if (episode.ProviderIds.TryGetValue(provider, out var providerId)
-                    && !string.IsNullOrWhiteSpace(providerId))
+                return BuildProviderMergeKey(provider.Value);
+            }
+
+            if (enableEpisodeFallback)
+            {
+
+                if (episode.ParentIndexNumber.HasValue && episode.IndexNumber.HasValue)
                 {
-                    return $"provider:{provider}:{providerId}";
+                    return $"number:{episode.SeriesName}:{episode.ParentIndexNumber}:{episode.IndexNumber}:{episode.IndexNumberEnd}";
                 }
+
+                return $"title:{episode.SeriesName}:{episode.SeasonName}:{episode.Name}:{episode.ProductionYear}";
             }
 
-            if (episode.ParentIndexNumber.HasValue && episode.IndexNumber.HasValue)
-            {
-                return $"number:{episode.SeriesName}:{episode.ParentIndexNumber}:{episode.IndexNumber}:{episode.IndexNumberEnd}";
-            }
-
-            return $"title:{episode.SeriesName}:{episode.SeasonName}:{episode.Name}:{episode.ProductionYear}";
+            return null;
         }
 
-        private bool IsEligible(BaseItem item)
+
+        private sealed class LibraryContext
         {
-            if (IsInInactiveLibrary(item) || IsInExcludedLibrary(item))
+            public IReadOnlyList<string> VirtualFolderLocations { get; }
+            public IReadOnlyList<string> ExcludedLocations { get; }
+
+            public LibraryContext(
+                IReadOnlyList<string> virtualFolderLocations,
+                IReadOnlyList<string> excludedLocations)
+            {
+                VirtualFolderLocations = virtualFolderLocations;
+                ExcludedLocations = excludedLocations;
+            }
+        }
+
+        private LibraryContext BuildLibraryContext()
+        {
+            var excluded = Plugin.Instance?.PluginConfiguration?.LocationsExcluded
+                           ?? Array.Empty<string>();
+
+            var virtualFolderLocations = _libraryManager
+                .GetVirtualFolders()
+                .SelectMany(vf => vf.Locations ?? Array.Empty<string>())
+                .ToArray();
+
+            return new LibraryContext(virtualFolderLocations, excluded);
+        }
+
+        private bool IsEligible(BaseItem item, LibraryContext ctx)
+        {
+            if (IsInInactiveLibrary(item, ctx) || IsInExcludedLibrary(item, ctx))
             {
                 return false;
             }
             return true;
         }
 
-        private bool IsInExcludedLibrary(BaseItem item)
+        private bool IsInExcludedLibrary(BaseItem item, LibraryContext ctx)
         {
-            return Plugin.Instance.PluginConfiguration.LocationsExcluded != null
-                   && Plugin.Instance.PluginConfiguration.LocationsExcluded
+            return ctx.ExcludedLocations
                      .Any(s => _fileSystem.ContainsSubPath(s, item.Path));
         }
 
-        private bool IsInInactiveLibrary(BaseItem item)
+        private bool IsInInactiveLibrary(BaseItem item, LibraryContext ctx)
         {
             if (item is not Movie)
             {
@@ -226,10 +291,8 @@ namespace Jellyfin.Plugin.MergeVersions
                 return false;
             }
 
-            var virtualFolders = _libraryManager.GetVirtualFolders();
 
-            return !virtualFolders
-                .SelectMany(vf => vf.Locations ?? Array.Empty<string>())
+            return ctx.VirtualFolderLocations
                 .Any(libPath => string.Equals(libPath, parentPath, StringComparison.OrdinalIgnoreCase) ||
                                 _fileSystem.ContainsSubPath(libPath, parentPath));
         }
@@ -249,7 +312,7 @@ namespace Jellyfin.Plugin.MergeVersions
             }
         }
 
-        private static string GetFirstProviderId(BaseItem item, IReadOnlyList<string> keys)
+        private static (string ProviderKey, string ProviderId)? GetFirstProviderId(BaseItem item, IReadOnlyList<string> keys)
         {
             if (item?.ProviderIds is null || keys is null || keys.Count == 0)
             {
@@ -265,12 +328,18 @@ namespace Jellyfin.Plugin.MergeVersions
                     if (string.Equals(p.Key, key, StringComparison.OrdinalIgnoreCase) &&
                         !string.IsNullOrWhiteSpace(p.Value))
                     {
-                        return p.Value;
+                        return (p.Key, p.Value);
                     }
                 }
             }
 
             return null;
         }
+        private static string BuildProviderMergeKey((string ProviderKey, string ProviderId) provider)
+            => $"provider:{provider.ProviderKey}:{provider.ProviderId}";
+
+
+        private static bool IsNotYetMerged(Video item)
+            => item.PrimaryVersionId == null && !item.LinkedAlternateVersions.Any();
     }
 }
