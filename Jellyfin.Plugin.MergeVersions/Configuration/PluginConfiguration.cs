@@ -18,7 +18,7 @@ namespace Jellyfin.Plugin.MergeVersions.Configuration
         public string[] EpisodeProviderIdKeys { get; set; }
 
         /// <summary>
-        /// use season number title
+        /// compare season number and title
         /// </summary>
         public bool EnableEpisodeFallback { get; set; }
 

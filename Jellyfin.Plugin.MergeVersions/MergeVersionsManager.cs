@@ -85,6 +85,7 @@ namespace Jellyfin.Plugin.MergeVersions
             var ctx = BuildLibraryContext();
             var movies = GetMoviesFromLibrary(GetConfiguredMovieProviderIdKeys(), ctx)
                 .Select(x => x.Movie)
+                .Where(m => !IsNotYetMerged(m))
                 .ToList();
             var current = 0;
             foreach (var movie in movies)
@@ -180,6 +181,7 @@ namespace Jellyfin.Plugin.MergeVersions
             var enableEpisodeFallback = Plugin.Instance?.Configuration?.EnableEpisodeFallback ?? false;
             var episodes = GetEpisodesFromLibrary(providerIdKeys, ctx, enableEpisodeFallback)
                 .Select(x => x.Episode)
+                .Where(e => !IsNotYetMerged(e))
                 .ToList();
             var current = 0;
 
@@ -292,7 +294,7 @@ namespace Jellyfin.Plugin.MergeVersions
             }
 
 
-            return ctx.VirtualFolderLocations
+            return !ctx.VirtualFolderLocations
                 .Any(libPath => string.Equals(libPath, parentPath, StringComparison.OrdinalIgnoreCase) ||
                                 _fileSystem.ContainsSubPath(libPath, parentPath));
         }
